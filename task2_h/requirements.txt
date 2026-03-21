@@ -1,0 +1,9 @@
+numpy>=1.24
+matplotlib>=3.7
+scipy>=1.10
+
+# Optional — physics-based visualization
+# pybullet>=3.2.5
+
+# Optional — GIF generation
+# Pillow>=9.0

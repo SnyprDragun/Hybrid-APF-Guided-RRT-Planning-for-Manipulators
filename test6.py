@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-APF-RRT* Planner - CORRECTED for Actual Panda Structure
-Real arm joints are 1-7, not 7-8!
+PyBullet Simulation for APF-RRT* Panda Planner
+Visualizes planning and execution in real-time
 """
 
+import pybullet as p
+import pybullet_data
 import numpy as np
 import pinocchio as pin
+from pathlib import Path
+import time
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from pathlib import Path
 
 
 URDF_PATH = Path("/home/focaslab/ros2_ws/src/Hybrid-APF-Guided-RRT-Planning-for-Manipulators/model_description/panda_with_gripper.urdf")
@@ -29,34 +30,17 @@ class PlannerConfig:
 
 
 class PandaRobotWrapper:
+    """Pinocchio-based robot for planning"""
     
     def __init__(self, urdf_path: Path):
-        
-        print(f"Loading URDF: {urdf_path}")
-        
-        if not urdf_path.exists():
-            raise FileNotFoundError(f"URDF not found: {urdf_path}")
-        
         package_dir = str(urdf_path.parent.parent)
         self.robot = pin.RobotWrapper.BuildFromURDF(str(urdf_path), package_dir)
-        
         self.model = self.robot.model
         self.data = self.robot.data
         self.nq = self.model.nq
         
-        print(f"✓ Loaded robot with {self.nq} DOF")
-        print(f"  Joint structure:")
-        for i in range(self.model.njoints):
-            print(f"    [{i}] {self.model.names[i]}")
-        
-        # Find EE frame
         self.ee_frame_id = self._find_ee_frame()
-        print(f"✓ End-effector: {self.model.frames[self.ee_frame_id].name}\n")
-        
-        # Collision check frames
         self.collision_check_frames = self._find_collision_frames()
-        
-        # Joint limits
         self.joint_limits = self._get_joint_limits()
     
     def _find_ee_frame(self) -> int:
@@ -69,10 +53,9 @@ class PandaRobotWrapper:
     
     def _find_collision_frames(self) -> List[int]:
         frames = []
-        important_keywords = ['link', 'panda', 'arm']
         for frame_id, frame in enumerate(self.model.frames):
             name_lower = frame.name.lower()
-            if any(kw in name_lower for kw in important_keywords):
+            if any(kw in name_lower for kw in ['link', 'panda', 'arm']):
                 if 'world' not in name_lower and 'finger' not in name_lower:
                     frames.append(frame_id)
         frames.append(self.ee_frame_id)
@@ -82,11 +65,8 @@ class PandaRobotWrapper:
         limits = []
         for i in range(1, self.model.njoints):
             try:
-                if hasattr(self.model, 'lowerPositionLimit'):
-                    low = float(self.model.lowerPositionLimit[i-1])
-                    high = float(self.model.upperPositionLimit[i-1])
-                else:
-                    low, high = -np.pi, np.pi
+                low = float(self.model.lowerPositionLimit[i-1])
+                high = float(self.model.upperPositionLimit[i-1])
             except:
                 low, high = -np.pi, np.pi
             limits.append((low, high))
@@ -101,9 +81,8 @@ class PandaRobotWrapper:
     
     def jacobian(self, q: np.ndarray) -> np.ndarray:
         pin.forwardKinematics(self.model, self.data, q)
-        J = pin.getFrameJacobian(self.model, self.data, self.ee_frame_id,
-                                 pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
-        return J
+        return pin.getFrameJacobian(self.model, self.data, self.ee_frame_id,
+                                    pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
     
     def enforce_limits(self, q: np.ndarray) -> np.ndarray:
         q_safe = q.copy()
@@ -209,13 +188,6 @@ class APFRRTStar:
     def plan(self, q_start: np.ndarray, q_goal: np.ndarray,
             obstacles: List[Tuple[np.ndarray, float]]) -> Tuple[Optional[List[np.ndarray]], List[Node], Dict]:
         
-        if len(q_start) != self.robot.nq or len(q_goal) != self.robot.nq:
-            raise ValueError(f"Expected {self.robot.nq} DOF")
-        
-        print(f"{'='*70}")
-        print(f"APF-RRT* Planning")
-        print(f"{'='*70}\n")
-        
         tree = [Node(q=q_start.copy(), cost=0.0)]
         best_cost = np.inf
         best_path = None
@@ -225,11 +197,16 @@ class APFRRTStar:
             if np.random.random() < self.config.goal_sample_rate:
                 q_rand = q_goal.copy()
             else:
+                # Biased sampling: prefer configs closer to goal
                 q_rand = np.zeros(self.robot.nq)
-                q_rand[0] = 0  # universe joint
-                for i in range(1, self.robot.nq):
-                    low, high = self.robot.joint_limits[i-1]
-                    q_rand[i] = np.random.uniform(low, high)
+                for i in range(self.robot.nq):
+                    low, high = self.robot.joint_limits[i]
+                    # 70% towards goal, 30% random
+                    if np.random.random() < 0.7:
+                        q_rand[i] = q_goal[i] + np.random.normal(0, 0.3)
+                    else:
+                        q_rand[i] = np.random.uniform(low, high)
+                    q_rand[i] = np.clip(q_rand[i], low, high)
             
             dists = [np.linalg.norm(n.q - q_rand) for n in tree]
             nearest_idx = np.argmin(dists)
@@ -265,7 +242,7 @@ class APFRRTStar:
                     neighbor.parent = new_node
                     neighbor.cost = cost
             
-            if np.linalg.norm(q_new - q_goal) < 0.3:
+            if np.linalg.norm(q_new - q_goal) < 0.5:
                 goal_node = Node(q=q_goal.copy())
                 goal_node.parent = new_node
                 goal_node.cost = new_node.cost + np.linalg.norm(q_new - q_goal)
@@ -284,14 +261,14 @@ class APFRRTStar:
             
             metrics['iterations'] = iteration
         
-        print(f"\n{'='*70}")
-        if best_path:
-            print(f"✓ SUCCESS: Found path with {len(best_path)} waypoints")
-            print(f"  Cost: {best_cost:.3f}")
-        else:
-            print(f"❌ NO PATH FOUND")
-            print(f"  Collisions: {metrics['collisions']}/{metrics['nodes_added']}")
-        print(f"{'='*70}\n")
+        # If no path found, try simple linear interpolation as fallback
+        if best_path is None:
+            print("\nNo RRT path found. Trying linear interpolation fallback...")
+            if self.robot.swept_volume_collision_free(q_start, q_goal, obstacles, num_samples=50):
+                best_path = [q_start + (q_goal - q_start) * t for t in np.linspace(0, 1, 20)]
+                print("✓ Linear path is collision-free!")
+            else:
+                print("✗ Even linear path has collisions")
         
         return best_path, tree, metrics
     
@@ -303,118 +280,110 @@ class APFRRTStar:
         return path[::-1]
 
 
-def visualize(robot: PandaRobotWrapper, path: Optional[List[np.ndarray]],
-             obstacles: List[Tuple[np.ndarray, float]]):
-    fig = plt.figure(figsize=(12, 9))
-    ax = fig.add_subplot(111, projection='3d')
+class PyBulletSimulator:
+    """PyBullet simulation environment"""
     
-    if path is None:
-        print("No path to visualize")
-        return
+    def __init__(self, gui: bool = True):
+        self.client = p.connect(p.GUI if gui else p.DIRECT)
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.81)
+        
+        # Load plane
+        self.plane_id = p.loadURDF("plane.urdf")
+        
+        # Load Panda
+        self.panda_id = p.loadURDF(str(URDF_PATH), useFixedBase=True)
+        
+        # Get joint indices (skip fixed/universe joints)
+        self.joint_ids = []
+        for i in range(p.getNumJoints(self.panda_id)):
+            info = p.getJointInfo(self.panda_id, i)
+            if info[2] != p.JOINT_FIXED:  # Skip fixed joints
+                self.joint_ids.append(i)
+        
+        print(f"PyBullet: Loaded Panda with {len(self.joint_ids)} active joints")
     
-    try:
-        path_array = np.array([robot.forward_kinematics(q) for q in path])
-        ax.plot(path_array[:, 0], path_array[:, 1], path_array[:, 2],
-                'b-', linewidth=2, label='Path')
-        ax.scatter(*path_array[0], s=100, c='green', marker='o', label='Start')
-        ax.scatter(*path_array[-1], s=100, c='red', marker='s', label='Goal')
-    except Exception as e:
-        print(f"Visualization error: {e}")
-        return
+    def set_joint_angles(self, q: np.ndarray):
+        """Set robot joint angles"""
+        for i, joint_id in enumerate(self.joint_ids[:len(q)]):
+            p.resetJointState(self.panda_id, joint_id, q[i])
     
-    for obs_center, obs_radius in obstacles:
-        u = np.linspace(0, 2*np.pi, 20)
-        v = np.linspace(0, np.pi, 20)
-        x = obs_radius * np.outer(np.cos(u), np.sin(v)) + obs_center[0]
-        y = obs_radius * np.outer(np.sin(u), np.sin(v)) + obs_center[1]
-        z = obs_radius * np.outer(np.ones(len(u)), np.cos(v)) + obs_center[2]
-        ax.plot_surface(x, y, z, alpha=0.3, color='red')
+    def add_obstacle(self, position: np.ndarray, radius: float, color=(1, 0, 0, 0.5)):
+        """Add sphere obstacle"""
+        shape = p.createCollisionShape(p.GEOM_SPHERE, radius=radius)
+        visual = p.createVisualShape(p.GEOM_SPHERE, radius=radius, rgbaColor=color)
+        obj_id = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=shape,
+                                   baseVisualShapeIndex=visual,
+                                   basePosition=position)
+        return obj_id
     
-    ax.set_xlabel('X (m)')
-    ax.set_ylabel('Y (m)')
-    ax.set_zlabel('Z (m)')
-    ax.set_title('APF-RRT* Path')
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig('path_visualization.png', dpi=150)
-    print("✓ Saved to path_visualization.png")
-    plt.show()
+    def visualize_path(self, path: List[np.ndarray], delay: float = 0.1):
+        """Replay planned path"""
+        print("\nReplaying path in simulation...")
+        for i, q in enumerate(path):
+            self.set_joint_angles(q)
+            p.stepSimulation()
+            time.sleep(delay)
+            if (i + 1) % 5 == 0:
+                print(f"  Waypoint {i+1}/{len(path)}")
+        print("Path execution complete!")
+    
+    def close(self):
+        p.disconnect()
 
 
 def main():
-    
     print("\n" + "="*70)
-    print("APF-RRT* PLANNER - PANDA ARM")
+    print("APF-RRT* PANDA PLANNER WITH PYBULLET SIMULATION")
     print("="*70 + "\n")
     
-    try:
-        robot = PandaRobotWrapper(URDF_PATH)
-    except Exception as e:
-        print(f"ERROR: {e}")
-        return
+    # Initialize planner
+    robot = PandaRobotWrapper(URDF_PATH)
+    config = PlannerConfig(max_iterations=3000)  # Reduced for faster planning
+    planner = APFRRTStar(robot, config)
     
-    config = PlannerConfig()
+    # Define problem
+    q_start = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    q_goal = np.array([0.0, 1.0, -0.5, 0.5, -1.5, 0.3, 1.0, 0.0, 0.0])
     
-    # ========================================================================
-    # REAL ARM JOINTS ARE 1-7, NOT 7-8!
-    # Based on your output:
-    # - Joint 0: universe (rotation, nq=1)
-    # - Joints 1-7: arm joints (the real Panda 7-DOF arm)
-    # - Joints 8-9: gripper (doesn't affect EE position)
-    # ========================================================================
+    # No obstacles initially - let's find a valid path first
+    obstacles = []
     
-    # Home pose (9 DOF: universe is index 0, then panda_joint1-7, then gripper)
-    q_start = np.array([
-        0.0,          # universe joint (nq=1)
-        0.0,          # panda_joint1
-        0.0,          # panda_joint2
-        0.0,          # panda_joint3
-        0.0,          # panda_joint4
-        0.0,          # panda_joint5
-        0.0,          # panda_joint6
-        0.0,          # panda_joint7
-        0.0           # panda_finger_joint1 (gripper - don't care)
-    ])
-    
-    # Goal: move the arm to a different configuration
-    # From your output, joint 2 and joint 4 have the most effect on X,Y movement
-    q_goal = np.array([
-        0.0,          # universe
-        1.0,          # panda_joint1 (rotate base)
-        -0.5,         # panda_joint2 (big effect!)
-        0.5,          # panda_joint3
-        -1.5,         # panda_joint4 (big effect!)
-        0.3,          # panda_joint5
-        1.0,          # panda_joint6
-        0.0,          # panda_joint7
-        0.0           # panda_finger_joint1 (gripper)
-    ])
-    
-    # Compute EE positions
+    print("Planning without obstacles...")
     ee_start = robot.forward_kinematics(q_start)
     ee_goal = robot.forward_kinematics(q_goal)
     
-    print(f"Start config: joints 1-7 = {q_start[1:8]}")
-    print(f"  EE: ({ee_start[0]:.3f}, {ee_start[1]:.3f}, {ee_start[2]:.3f})")
-    print(f"\nGoal config: joints 1-7 = {q_goal[1:8]}")
-    print(f"  EE: ({ee_goal[0]:.3f}, {ee_goal[1]:.3f}, {ee_goal[2]:.3f})")
-    print(f"\nEE displacement: ({ee_goal[0]-ee_start[0]:+.3f}, {ee_goal[1]-ee_start[1]:+.3f}, {ee_goal[2]-ee_start[2]:+.3f})\n")
+    print(f"Start EE: ({ee_start[0]:.3f}, {ee_start[1]:.3f}, {ee_start[2]:.3f})")
+    print(f"Goal EE:  ({ee_goal[0]:.3f}, {ee_goal[1]:.3f}, {ee_goal[2]:.3f})\n")
     
-    # Obstacles between start and goal
-    obstacles = [
-        (np.array([0.2, 0.5, 0.8]), 0.1),
-        (np.array([0.0, 1.0, 0.8]), 0.1),
-    ]
-    
-    # Plan
-    planner = APFRRTStar(robot, config)
     path, tree, metrics = planner.plan(q_start, q_goal, obstacles)
     
-    if path:
-        visualize(robot, path, obstacles)
-    else:
-        print(f"Start is collision-free: {robot.collision_check(q_start, obstacles)}")
-        print(f"Goal is collision-free: {robot.collision_check(q_goal, obstacles)}")
+    if not path:
+        print("❌ Planning failed even without obstacles!")
+        return
+    
+    print(f"✓ Path found with {len(path)} waypoints\n")
+    
+    # Initialize PyBullet simulator
+    print("Starting PyBullet simulation...")
+    sim = PyBulletSimulator(gui=True)
+    
+    # Add some obstacles if you want
+    # sim.add_obstacle(np.array([0.3, 0.0, 0.5]), 0.1)
+    
+    # Visualize path
+    sim.visualize_path(path, delay=0.05)
+    
+    # Keep window open
+    print("\nSimulation running. Press Ctrl+C to exit...")
+    try:
+        while True:
+            p.stepSimulation()
+            time.sleep(1.0 / 240.0)
+    except KeyboardInterrupt:
+        print("\nClosing simulation...")
+    finally:
+        sim.close()
 
 
 if __name__ == "__main__":

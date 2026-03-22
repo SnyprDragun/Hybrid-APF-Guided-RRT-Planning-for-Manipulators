@@ -159,7 +159,7 @@ def pybullet_demo():
         print("Planning failed.")
         return
 
-    viz = PyBulletVisualizer(gui=True)
+    viz = PyBulletVisualizer(gui=True, use_gripper=True)
     viz.load_scene()
     viz.execute_path(result.path, speed=1.0)
     input("Press Enter to exit …")

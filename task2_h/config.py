@@ -77,13 +77,13 @@ LINK_COLLISION_SAMPLES = 5
 # to create narrow passages between start and goal EE positions.
 OBSTACLES = [
     (np.array([ 0.30,  0.15, 0.45]), 0.06),
-    (np.array([ 0.40, -0.10, 0.35]), 0.06),
-    (np.array([ 0.20,  0.30, 0.30]), 0.05),
-    (np.array([ 0.50,  0.05, 0.50]), 0.05),
-    (np.array([ 0.35,  0.25, 0.55]), 0.05),
-    (np.array([ 0.15, -0.15, 0.40]), 0.04),
-    (np.array([ 0.45,  0.20, 0.40]), 0.04),
-    (np.array([ 0.25,  0.00, 0.55]), 0.04),
+    # (np.array([ 0.40, -0.10, 0.35]), 0.06),
+    # (np.array([ 0.20,  0.30, 0.30]), 0.05),
+    # (np.array([ 0.50,  0.05, 0.50]), 0.05),
+    # (np.array([ 0.35,  0.25, 0.55]), 0.05),
+    # (np.array([ 0.15, -0.15, 0.40]), 0.04),
+    # (np.array([ 0.45,  0.20, 0.40]), 0.04),
+    # (np.array([ 0.25,  0.00, 0.55]), 0.04),
 ]
 
 # Safety clearance added to obstacle radii for swept-volume checks
@@ -121,5 +121,5 @@ TIMEOUT_SEC    = 60.0       # per-run timeout
 # Default start / goal configurations (radians)
 # Chosen within joint limits; EE positions verified collision-free.
 # ─────────────────────────────────────────────
-Q_START = np.array([0.0, -0.5,  0.0, -2.0,  0.0, 1.5, 0.0])
-Q_GOAL  = np.array([1.0, -0.3,  0.5, -1.2,  0.3, 2.0, 0.5])
+Q_START = np.array([ 0.000000, 0.610865, 0.000000, -2.007130, 0.000000, 2.617990, 0.785411])
+Q_GOAL  = np.array([-0.785411, 0.610865, 0.000000, -2.007130, 0.000000, 2.617990, 0.000000])

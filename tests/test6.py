@@ -343,9 +343,9 @@ def main():
     planner = APFRRTStar(robot, config)
     
     # Define problem
-    q_start = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    q_goal = np.array([0.0, 1.0, -0.5, 0.5, -1.5, 0.3, 1.0, 0.0, 0.0])
-    
+    q_start = np.array([ 0.000000, 0.610865, 0.000000, -2.007130, 0.000000, 2.617990, 0.785411, 0.000000, 0.000000])
+    q_goal  = np.array([-0.785411, 0.610865, 0.000000, -2.007130, 0.000000, 2.617990, 0.000000, 0.000000, 0.000000])
+
     # No obstacles initially - let's find a valid path first
     obstacles = []
     

@@ -135,7 +135,7 @@ MAX_JOINT_ACC       = 3.0           # conservative accel limit (rad/s^2)
 # For Panda in PyBullet, effective reflected inertias are ~0.5-2.0 kg·m².
 # Lower gains = smoother but slower tracking; higher = stiffer but jittery.
 KP_GAINS = np.array([100.0, 100.0, 100.0, 100.0, 50.0, 30.0, 10.0])
-KD_GAINS = np.array([ 20.0,  20.0,  20.0,  20.0, 10.0,  8.0,  4.0])
+KD_GAINS = np.array([ 8.0,  8.0,  8.0,  8.0, 4.0,  3.2,  1.6])
 
 # ─────────────────────────────────────────────
 # Benchmark

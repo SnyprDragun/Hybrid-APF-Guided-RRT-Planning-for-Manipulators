@@ -121,5 +121,5 @@ TIMEOUT_SEC    = 60.0       # per-run timeout
 # Default start / goal configurations (radians)
 # Chosen within joint limits; EE positions verified collision-free.
 # ─────────────────────────────────────────────
-Q_START = np.array([ 0.000000, 0.610865, 0.000000, -2.007130, 0.000000, 2.617990, 0.785411])
+Q_START = np.array([ 0.000000,-0.785411, 0.000000, -2.356229, 0.000000, 1.570824, 0.785411])
 Q_GOAL  = np.array([-0.785411, 0.610865, 0.000000, -2.007130, 0.000000, 2.617990, 0.000000])
